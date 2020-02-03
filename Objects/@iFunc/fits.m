@@ -131,16 +131,12 @@ function [pars_out,criteria,message,output] = fits(model, a, pars, options, cons
 %           parsHistoryUncertainty: Uncertainty on the parameters obtained from 
 %                              the optimization trajectory (double)
 %
-% The 'output' 4th return argument can be sent to 'fminplot' to plot the 
-% criteria convergence and the parameter distributions (see example below).
-%
 % ex:     data=load(iData, [ ifitpath 'Data/sv1850.scn' ])
 %         p=fits(data);
 %         [p,c,m,o]=fits(gauss,data,[],'optimizer=fminpowell; OutputFcn=fminplot'); 
 %         figure; plot(a); hold on; plot(o.modelAxes, o.modelValue,'r');
-%         fminplot(o);
 %
-% Version: $Date$ $Version$ $Author$
+% Version: Aug. 22, 2017
 % See also fminsearch, optimset, optimget, iFunc, iData/fits, iData, ifitmakefunc
 
 % first get the axes and signal from 'data'
@@ -149,8 +145,6 @@ function [pars_out,criteria,message,output] = fits(model, a, pars, options, cons
 % a.Error (numeric)
 % a.Monitor (numeric)
 % a.Axes (cell of numeric)
-
-pars_out=[]; criteria=[]; message=[]; output=[]; 
 
 % single empty argument: show funcs/optim list =================================
 % handle default parameters, if missing
@@ -170,7 +164,7 @@ end
 % check of input arguments =====================================================
 
 if isempty(model)
-  warning([ 'iFunc:' mfilename ': Using default gaussian model as fit function.' ]);
+  disp([ 'iFunc:' mfilename ': Using default gaussian model as fit function.' ]);
   model = gauss;
 end
 
@@ -348,7 +342,7 @@ if abs(model.Dimension) > ndimS
 % handle case when model dimensionality is smaller than actual Signal
 elseif abs(model.Dimension) < ndimS && rem(ndimS, model.Dimension) == 0
   % extend model to match Signal dimensions
-  warning(sprintf('iFunc:%s: Extending model %s dimensionality %d to data %s dimensionality %d.\n', ...
+  disp(sprintf('iFunc:%s: Extending model %s dimensionality %d to data %s dimensionality %d.\n', ...
     mfilename, model.Name, model.Dimension, a.Name, ndimS));
   new_model=model;
   for index=2:(ndimS/abs(model.Dimension))
@@ -362,12 +356,6 @@ end
 
 % handle parameters: from char, structure or vector
 [pars, pars_isstruct] = iFunc_private_get_pars(model, pars, a.Axes, a.Signal);
-if any(isnan(pars)) % some parameters are not set. Guess them.
-  index = find(isnan(pars));
-  pg = feval(model+0, 'guess', a.Axes{:}, a.Signal); % return Guess using data set
-  pars(index) = pg(index);      % set only those not set.
-  model.ParameterValues = pars; % update model
-end
 
 % handle options
 if isempty(options)
@@ -458,6 +446,7 @@ constraints.funcCount      = 0;
 
 % update the 'model' with starting parameter values
 model.ParameterValues = pars;
+% feval(model, pars, a.Axes{:}, a.Signal); 
 
 if strcmp(options.Display, 'iter') || strcmp(options.Display, 'final')
   fprintf(1, '** Starting fit of %s\n   using model    %s\n   with optimizer %s\n', ...
@@ -494,7 +483,8 @@ end
 % reshape output arguments and compute some diagnosis
 try
   pars2 = pars_out;
-  [output.modelValue, model] = feval(model, pars2, a.Axes{:}, varargin{:});    % this also changed pars_out into iFunc
+ % [output.modelValue, model] = feval(model, pars2, a.Axes{:});    % this also changed pars_out into iFunc
+  [output.modelValue, model] = feval(model, pars2, a.Axes{:},varargin{:});    % this also changed pars_out into iFunc
   index=find(~isnan(a.Signal) & ~isnan(output.modelValue));
   if ~isscalar(a.Error), e = a.Error(index); else e=a.Error; end
   output.corrcoef   = eval_corrcoef(a.Signal(index), e, output.modelValue(index));
@@ -538,7 +528,18 @@ if strcmp(options.Display, 'iter') || strcmp(options.Display, 'final')
         sigma(index)=0; 
         output.parsHistoryUncertainty = sigma;
     end
-    fprintf(1,'  p(%3d):%20s=%g +/- %g', index,strtok(model.Parameters{index}), pars_out(index), sigma(index)); 
+    
+    ind = find(constraints.fixed == 0); %KP modified
+    % KP modified 191229, corrects for correct length of sigma vector
+    sigma_out = zeros(1,length(model.Parameters));
+    for i=1:length(ind)
+        ii = ind(i);
+        sigma_out(ii) = sigma(i);
+    end
+    
+    fprintf(1,'  p(%3d):%20s=%g +/- %g', index,strtok(model.Parameters{index}), pars_out(index), sigma_out(index)); %KP modified
+    %fprintf(1,'  p(%3d):%20s=%g +/- %g', index,strtok(model.Parameters{index}), pars_out(index), sigma(index));
+    % END of modification
     if isfield(constraints, 'fixed') && length(constraints.fixed) >= index && constraints.fixed(index)
       fprintf(1, ' (fixed)'); end
     fprintf('\n');
@@ -776,7 +777,7 @@ function iFunc_private_fminplot(a,model,p,ModelValue,options,criteria)
     end
     hold off
   elseif ~isfinite(best_criteria) % TODO
-    warning([ mfilename ': data set dimensionality > 2. Not supported yet' ])
+    disp([ mfilename ': data set dimensionality > 2. Not supported yet' ])
   end
   options.updated = clock;
   if length(p) > 20, p= p(1:20); end
